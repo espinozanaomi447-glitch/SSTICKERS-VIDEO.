@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Stickers de Video</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ INICIO ============ -->
+<section id="home" class="screen active">
+  <header class="hero">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 64 64"><path d="M14 6h30a14 14 0 0 1 14 14v18L38 58H20A14 14 0 0 1 6 44V20A14 14 0 0 1 14 6z" fill="#fff"/><path d="M58 38H46a8 8 0 0 0-8 8v12z" fill="#bbf7d0"/><path d="M24 20l16 10-16 10z" fill="#ff5a36"/></svg>
+    </div>
+    <div>
+      <h1>Stickers de Video</h1>
+      <p>Recorta un pedacito de video y mándalo como sticker animado.</p>
+    </div>
+  </header>
+
+  <button id="btnNew" class="cta big">
+    <span class="plus">＋</span> Crear sticker desde un video
+  </button>
+  <button id="btnResume" class="ghost hidden">↺ Seguir con el último video</button>
+  <input type="file" id="fileInput" accept="video/*" hidden>
+
+  <div class="section-head">
+    <h2>Mis paquetes</h2>
+    <button id="btnNewPack" class="chip">＋ Paquete</button>
+  </div>
+  <div id="packs"></div>
+  <div id="emptyPacks" class="empty hidden">
+    <div class="empty-art">🎬</div>
+    <p><b>Aún no tienes stickers.</b><br>Elige un video, recorta la parte que te guste y guárdala aquí.</p>
+  </div>
+  <p class="foot-note">WhatsApp pide de <b>3 a 30 stickers</b> por paquete para poder agregarlo.</p>
+</section>
+
+<!-- ============ EDITOR ============ -->
+<section id="editor" class="screen">
+  <header class="bar">
+    <button class="icon-btn" id="edBack" aria-label="Volver">←</button>
+    <h2>Recortar video</h2>
+    <button class="icon-btn" id="edPlay" aria-label="Reproducir o pausar">❚❚</button>
+  </header>
+
+  <div class="scroll">
+    <div class="stage checker">
+      <canvas id="preview" width="512" height="512"></canvas>
+    </div>
+    <p class="stage-hint">Arrastra para mover · pellizca para acercar</p>
+
+    <div class="card">
+      <div class="card-title">
+        <span>Parte del video</span>
+        <span class="pill" id="tLen">3.0 s</span>
+      </div>
+      <div class="timeline" id="timeline">
+        <canvas id="strip"></canvas>
+        <div class="shade" id="shadeL"></div>
+        <div class="shade" id="shadeR"></div>
+        <div class="sel" id="sel"></div>
+        <div class="playhead" id="playhead"></div>
+        <input type="range" id="rStart" min="0" max="1" step="0.01" value="0" aria-label="Inicio">
+        <input type="range" id="rEnd" min="0" max="1" step="0.01" value="1" aria-label="Final">
+      </div>
+      <div class="times">
+        <div class="nudge"><button data-n="s-">−</button><span id="tStart">0.0</span><button data-n="s+">+</button></div>
+        <small>máx. 10 s</small>
+        <div class="nudge"><button data-n="e-">−</button><span id="tEnd">3.0</span><button data-n="e+">+</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <span class="lbl">Zoom</span>
+        <input type="range" id="zoom" min="0.4" max="3" step="0.01" value="1">
+        <button class="chip small" id="btnCenter">Centrar</button>
+      </div>
+      <div class="row">
+        <span class="lbl">Forma</span>
+        <div class="seg" data-key="shape">
+          <button data-v="square" class="on">Cuadro</button>
+          <button data-v="rounded">Redondo</button>
+          <button data-v="circle">Círculo</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="lbl">Fondo</span>
+        <div class="seg" data-key="bg">
+          <button data-v="transparent" class="on">Sin fondo</button>
+          <button data-v="#ffffff">Blanco</button>
+          <button data-v="#000000">Negro</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="lbl">Borde</span>
+        <div class="seg" data-key="border">
+          <button data-v="none" class="on">Sin borde</button>
+          <button data-v="#ffffff">Blanco</button>
+          <button data-v="#000000">Negro</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <input type="text" id="text" maxlength="40" placeholder="Escribe un texto (opcional)" autocomplete="off">
+      </div>
+      <div class="row">
+        <span class="lbl">Texto</span>
+        <div class="seg" data-key="textPos">
+          <button data-v="top">Arriba</button>
+          <button data-v="bottom" class="on">Abajo</button>
+        </div>
+        <div class="seg colors" data-key="textColor">
+          <button data-v="#ffffff" class="on" style="--c:#fff"></button>
+          <button data-v="#ffd23f" style="--c:#ffd23f"></button>
+          <button data-v="#ff5a36" style="--c:#ff5a36"></button>
+          <button data-v="#22c55e" style="--c:#22c55e"></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <span class="lbl">Fluidez</span>
+        <div class="seg" data-key="fps">
+          <button data-v="8">Baja</button>
+          <button data-v="12" class="on">Media</button>
+          <button data-v="15">Alta</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="lbl">Velocidad</span>
+        <div class="seg" data-key="speed">
+          <button data-v="0.5">×0.5</button>
+          <button data-v="1" class="on">×1</button>
+          <button data-v="1.5">×1.5</button>
+          <button data-v="2">×2</button>
+        </div>
+      </div>
+      <p class="tip">Si el sticker sale muy pesado, la app baja la calidad sola para que WhatsApp lo acepte (máx. 500 KB).</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <button id="btnMake" class="cta">Crear sticker ✨</button>
+  </div>
+</section>
+
+<!-- ============ RESULTADO ============ -->
+<section id="result" class="screen">
+  <header class="bar">
+    <button class="icon-btn" id="resBack" aria-label="Volver a editar">←</button>
+    <h2>Tu sticker</h2>
+    <span class="icon-btn ghosted"></span>
+  </header>
+  <div class="scroll">
+    <div class="result-wrap">
+      <div class="bubble">
+        <img id="resImg" alt="Vista previa del sticker">
+      </div>
+      <p id="resInfo" class="res-info"></p>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>Emojis del sticker</span><small>elige 1 a 3</small></div>
+      <div id="emojiPick" class="emojis"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>Guardar en</span></div>
+      <select id="packSel"></select>
+      <div id="newPackFields" class="stack hidden">
+        <input type="text" id="newPackName" maxlength="60" placeholder="Nombre del paquete">
+        <input type="text" id="newPackPub" maxlength="60" placeholder="Autor (tu nombre)">
+      </div>
+    </div>
+  </div>
+  <div class="footer two">
+    <button id="btnDownload" class="ghost">⬇ Descargar</button>
+    <button id="btnSave" class="cta">Guardar ✓</button>
+  </div>
+</section>
+
+<!-- ============ CAPAS ============ -->
+<div id="busy" class="overlay hidden">
+  <div class="busy-card">
+    <div class="spinner"></div>
+    <p id="busyText">Creando sticker…</p>
+    <div class="progress"><div id="busyBar"></div></div>
+  </div>
+</div>
+
+<div id="sheet" class="overlay hidden">
+  <div class="sheet-card" id="sheetCard"></div>
+</div>
+
+<div id="toast"></div>
+
+<video id="video" playsinline muted preload="auto"></video>
+
+<script src="webpmux.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
