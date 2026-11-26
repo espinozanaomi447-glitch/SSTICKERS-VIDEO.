@@ -49,4 +49,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("androidx.webkit:webkit:1.11.0")
+    // Convierte el video grabado a MP4 normal (H.264 + AAC) que WhatsApp acepta
+    implementation("androidx.media3:media3-transformer:1.4.1")
+    implementation("androidx.media3:media3-common:1.4.1")
 }

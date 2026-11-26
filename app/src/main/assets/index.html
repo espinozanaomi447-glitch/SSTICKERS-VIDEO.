@@ -43,7 +43,10 @@
   <header class="bar">
     <button class="icon-btn" id="edBack" aria-label="Volver">←</button>
     <h2>Recortar video</h2>
-    <button class="icon-btn" id="edPlay" aria-label="Reproducir o pausar">❚❚</button>
+    <div class="bar-actions">
+      <button class="icon-btn" id="edSound" aria-label="Sonido">🔇</button>
+      <button class="icon-btn" id="edPlay" aria-label="Reproducir o pausar">❚❚</button>
+    </div>
   </header>
 
   <div class="scroll">
@@ -143,10 +146,12 @@
         </div>
       </div>
       <p class="tip">Si el sticker sale muy pesado, la app baja la calidad sola para que WhatsApp lo acepte (máx. 500 KB).</p>
+      <p class="tip"><b>🔊 Como video</b> guarda este mismo pedazo como video con su sonido, para mandarlo por WhatsApp. (Los stickers de WhatsApp todavía no pueden llevar sonido.)</p>
     </div>
   </div>
 
-  <div class="footer">
+  <div class="footer two">
+    <button id="btnVideo" class="ghost">🔊 Como video</button>
     <button id="btnMake" class="cta">Crear sticker ✨</button>
   </div>
 </section>

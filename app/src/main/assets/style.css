@@ -87,6 +87,8 @@ input, select { font: inherit; color: inherit; }
 .icon-btn { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font-size: 20px; font-weight: 700; }
 .icon-btn:active { background: var(--line); }
 .icon-btn.ghosted { visibility: hidden; }
+.bar-actions { display: flex; gap: 2px; }
+.tip b { color: var(--ink); }
 .footer { padding: 12px 16px calc(14px + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--line); flex: none; }
 .footer.two { display: grid; grid-template-columns: 1fr 1.6fr; gap: 10px; }
 .footer.two .ghost { margin: 0; white-space: nowrap; padding: 13px 8px; }

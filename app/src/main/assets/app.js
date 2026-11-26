@@ -52,6 +52,13 @@
         addToWA: (p) => A.addToWhatsApp(p.id, p.name),
         download: (b64, name) => parse(A.saveToDownloads(b64, name)) || { ok: false, error: 'Error' },
         keepAwake: (on) => { try { A.keepScreenOn(on); } catch (e) { /* nada */ } },
+        // La parte de Android convierte a MP4, lo guarda en la galería y avisa con window.onVideoSaved
+        saveVideo: (b64, mime) => new Promise((res) => {
+          window.onVideoSaved = (o) => { window.onVideoSaved = null; res(o || { ok: false, error: 'Error' }); };
+          const r = parse(A.saveVideo(b64, mime));
+          if (!r || !r.ok) { window.onVideoSaved = null; res(r || { ok: false, error: 'Error desconocido' }); }
+        }),
+        shareVideo: () => A.shareVideo(),
       };
     }
     // Simulación para probar en un navegador de computadora
@@ -92,6 +99,13 @@
         return { ok: true, msg: 'Descargado' };
       },
       keepAwake: () => {},
+      saveVideo: (b64, mime) => {
+        const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+        const a = document.createElement('a'); a.href = toUrl(b64, mime); a.download = 'sticker_video.' + ext; a.click();
+        window.__lastVideo = { b64, mime };
+        return Promise.resolve({ ok: true, msg: 'Descargado' });
+      },
+      shareVideo: () => toast('Esto solo funciona dentro de la app de Android.'),
     };
   })();
 
@@ -471,6 +485,7 @@
   function startPreview() {
     if (!ed.url) return;
     video.playbackRate = ed.speed;
+    if (soundOn) ensureAudio();
     if (video.currentTime < ed.start || video.currentTime > ed.end) video.currentTime = ed.start;
     if (!userPaused) video.play().catch(() => {});
     updatePlayBtn();
@@ -494,6 +509,46 @@
   function updatePlayBtn() { $('#edPlay').textContent = userPaused ? '▶' : '❚❚'; }
   $('#edPlay').onclick = togglePlay;
   $('#edBack').onclick = () => leaveEditor();
+
+  // =====================================================================
+  // Sonido: el audio del video pasa por Web Audio para poder
+  // escucharlo en el editor y grabarlo junto con la imagen.
+  // =====================================================================
+  let soundOn = false;
+  try { soundOn = localStorage.getItem('soundOn') === '1'; } catch (e) { /* */ }
+  let actx = null, previewGain = null, audioDest = null;
+
+  function ensureAudio() {
+    if (actx) { if (actx.state === 'suspended') actx.resume().catch(() => {}); return true; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    try {
+      actx = new AC();
+      const src = actx.createMediaElementSource(video);
+      previewGain = actx.createGain();
+      previewGain.gain.value = soundOn ? 1 : 0;
+      src.connect(previewGain);
+      previewGain.connect(actx.destination);
+      audioDest = actx.createMediaStreamDestination();
+      src.connect(audioDest);
+      video.muted = false;          // ahora el volumen lo controla previewGain
+      actx.resume().catch(() => {});
+      return true;
+    } catch (e) {
+      actx = null;
+      return false;
+    }
+  }
+  function updateSoundBtn() { $('#edSound').textContent = soundOn ? '🔊' : '🔇'; }
+  $('#edSound').onclick = () => {
+    soundOn = !soundOn;
+    try { localStorage.setItem('soundOn', soundOn ? '1' : '0'); } catch (e) { /* */ }
+    if (ensureAudio()) previewGain.gain.value = soundOn ? 1 : 0;
+    else video.muted = !soundOn;
+    updateSoundBtn();
+    toast(soundOn ? 'Sonido activado' : 'Sonido apagado', 1200);
+  };
+  updateSoundBtn();
 
   // =====================================================================
   // Línea de tiempo
@@ -780,6 +835,105 @@
   $('#btnMake').onclick = makeSticker;
 
   // =====================================================================
+  // Guardar el pedazo recortado como video CON sonido
+  // =====================================================================
+  function pickVideoMime() {
+    const list = [
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+      'video/mp4;codecs=avc1,mp4a.40.2',
+      'video/mp4',
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=vp9,opus',
+      'video/webm',
+    ];
+    for (const m of list) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch (e) { /* */ } }
+    return '';
+  }
+
+  async function makeVideo() {
+    if (!ed.url || busy) return;
+    if (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) {
+      sheet({ title: 'No se puede grabar video', text: 'Este teléfono no permite grabar video desde la app. Actualiza "Android System WebView" y "Chrome" desde la Play Store.', actions: [], cancel: 'Entendido' });
+      return;
+    }
+    stopPreview();
+    setBusy(true, 'Grabando el video con su sonido…');
+    const hasAudio = ensureAudio();
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = SIZE;
+    const cx = canvas.getContext('2d');
+    // Un video no puede ser transparente: lo que no tiene fondo queda blanco
+    const paint = () => {
+      drawFrame(cx, video, SIZE);
+      cx.save();
+      cx.globalCompositeOperation = 'destination-over';
+      cx.fillStyle = ed.bg !== 'transparent' ? ed.bg : '#ffffff';
+      cx.fillRect(0, 0, SIZE, SIZE);
+      cx.restore();
+    };
+    let stream = null;
+    try {
+      await seek(ed.start);
+      paint();
+      stream = canvas.captureStream(30);
+      if (hasAudio && audioDest) audioDest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+      const mime = pickVideoMime();
+      const opts = { videoBitsPerSecond: 2500000, audioBitsPerSecond: 128000 };
+      if (mime) opts.mimeType = mime;
+      const rec = new MediaRecorder(stream, opts);
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      const stopped = new Promise((r) => { rec.onstop = r; });
+
+      video.playbackRate = ed.speed;
+      rec.start(500);
+      await video.play();
+      const segLen = ed.end - ed.start;
+      const limitMs = segLen / ed.speed * 1000 + 4000;
+      const t0 = performance.now();
+      await new Promise((res) => {
+        const step = () => {
+          paint();
+          const t = video.currentTime;
+          setProgress(0.9 * Math.min(1, Math.max(0, (t - ed.start) / segLen)));
+          if (t >= ed.end - 0.02 || video.ended || video.paused || performance.now() - t0 > limitMs) { res(); return; }
+          requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+      video.pause();
+      rec.stop();
+      await stopped;
+
+      const type = (rec.mimeType || mime || 'video/webm').split(';')[0];
+      const blob = new Blob(chunks, { type });
+      if (!blob.size) throw new Error('No se grabó nada. Intenta de nuevo.');
+      $('#busyText').textContent = 'Preparando el video…';
+      setProgress(0.95);
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const r = await Store.saveVideo(toB64(bytes), type);
+      setBusy(false);
+      startPreview();
+      if (!r || !r.ok) throw new Error((r && r.error) || 'No se pudo guardar el video');
+      sheet({
+        title: 'Video guardado 🎬',
+        text: (r.msg || 'Listo') + (hasAudio ? '' : ' (Este teléfono no dejó grabar el sonido.)'),
+        actions: [{ label: 'Enviar por WhatsApp', kind: 'primary', fn: () => Store.shareVideo() }],
+        cancel: 'Listo',
+      });
+    } catch (err) {
+      setBusy(false);
+      startPreview();
+      sheet({ title: 'No se pudo crear el video', text: err.message || String(err), actions: [], cancel: 'Entendido' });
+    } finally {
+      // solo se detiene la pista de imagen; la de audio se reutiliza la próxima vez
+      if (stream) stream.getVideoTracks().forEach((t) => t.stop());
+      video.playbackRate = ed.speed;
+    }
+  }
+  $('#btnVideo').onclick = makeVideo;
+
+  // =====================================================================
   // Resultado
   // =====================================================================
   function showResult() {
@@ -867,5 +1021,5 @@
 
   // =====================================================================
   renderHome();
-  window.__app = { ed, makeSticker, get result() { return result; }, Store };
+  window.__app = { ed, makeSticker, makeVideo, get result() { return result; }, Store };
 })();

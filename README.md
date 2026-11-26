@@ -11,6 +11,9 @@ App Android para convertir pedacitos de video en **stickers animados de WhatsApp
 5. **Crear sticker**: genera un WebP animado de 512×512 y menos de 500 KB. Si queda pesado, la app baja la calidad o los cuadros por segundo sola.
 6. **Guardar en un paquete**, elegir 1 a 3 emojis, y cuando el paquete tenga **3 stickers o más**, tocar **"Agregar a WhatsApp"**.
 7. También puedes **descargar** el sticker (.webp) a `Descargas/StickersVideo`.
+8. **🔊 Como video**: guarda el mismo pedazo recortado (con encuadre, texto y borde) como video MP4 **con su sonido**, en la galería (`Películas/StickersVideo`), y lo envía por WhatsApp. El botón 🔇/🔊 del editor deja escuchar el audio mientras recortas.
+
+> Los stickers de WhatsApp todavía no aceptan sonido: WhatsApp está probando "stickers con sonido" en beta, pero solo dentro de su propio creador.
 
 ## Compilar el APK con GitHub Actions
 

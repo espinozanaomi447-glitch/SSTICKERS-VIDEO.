@@ -3,6 +3,7 @@ package com.naomi.stickersvideo
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -24,6 +25,15 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
+import androidx.core.content.FileProvider
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
 import androidx.webkit.WebViewAssetLoader
 import org.json.JSONArray
 import org.json.JSONObject
@@ -33,6 +43,8 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var web: WebView
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var transformer: Transformer? = null
+    @Volatile private var lastVideo: File? = null
 
     private val pickVideo = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val cb = fileCallback
@@ -166,6 +178,115 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Video con sonido
+    // ------------------------------------------------------------------
+
+    private fun notifyVideo(result: String) {
+        web.post {
+            web.evaluateJavascript("window.onVideoSaved && window.onVideoSaved($result)", null)
+        }
+    }
+
+    /** Convierte lo grabado a un MP4 normal (H.264 + AAC) que WhatsApp y la galería entienden. */
+    @OptIn(UnstableApi::class)
+    private fun exportVideo(input: File, out: File) {
+        val listener = object : Transformer.Listener {
+            override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                transformer = null
+                Thread { finishVideo(input, out) }.start()
+            }
+
+            override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                transformer = null
+                Thread {
+                    // Si ya era MP4, se usa tal cual
+                    if (input.extension == "mp4") {
+                        try {
+                            input.copyTo(out, overwrite = true)
+                            finishVideo(input, out)
+                        } catch (e: Exception) {
+                            notifyVideo(fail(e))
+                        }
+                    } else {
+                        notifyVideo(fail(Exception("No se pudo convertir el video (${exportException.errorCodeName}).")))
+                    }
+                }.start()
+            }
+        }
+        try {
+            val t = Transformer.Builder(this)
+                .setVideoMimeType(MimeTypes.VIDEO_H264)
+                .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                .addListener(listener)
+                .build()
+            transformer = t
+            t.start(MediaItem.fromUri(Uri.fromFile(input)), out.absolutePath)
+        } catch (e: Exception) {
+            transformer = null
+            notifyVideo(fail(e))
+        }
+    }
+
+    /** Guarda una copia en la galería y deja el archivo listo para compartir. */
+    private fun finishVideo(input: File, out: File) {
+        input.delete()
+        lastVideo = out
+        val msg = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, out.name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/StickersVideo")
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                val uri = contentResolver.insert(collection, values)
+                    ?: throw IllegalStateException("No se pudo crear el archivo")
+                contentResolver.openOutputStream(uri)?.use { os -> out.inputStream().use { it.copyTo(os) } }
+                    ?: throw IllegalStateException("No se pudo escribir el archivo")
+                values.clear()
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+                "Está en tu galería, en Películas/StickersVideo."
+            } else {
+                val dir = File(getExternalFilesDir(Environment.DIRECTORY_MOVIES), "StickersVideo").apply { mkdirs() }
+                out.copyTo(File(dir, out.name), overwrite = true)
+                "Guardado en ${dir.absolutePath}"
+            }
+        } catch (e: Exception) {
+            "Está listo para enviar, pero no se pudo copiar a la galería."
+        }
+        notifyVideo(ok { put("msg", msg) })
+    }
+
+    private fun shareLastVideo() {
+        val f = lastVideo
+        if (f == null || !f.exists()) {
+            web.evaluateJavascript("window.onWhatsAppResult && window.onWhatsAppResult('error', 'Primero crea el video.')", null)
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "video/mp4"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri("", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val consumer = isInstalled("com.whatsapp")
+        val business = isInstalled("com.whatsapp.w4b")
+        val direct = when {
+            consumer && !business -> Intent(send).setPackage("com.whatsapp")
+            business && !consumer -> Intent(send).setPackage("com.whatsapp.w4b")
+            else -> null
+        }
+        try {
+            startActivity(direct ?: Intent.createChooser(send, "Enviar video"))
+        } catch (e: ActivityNotFoundException) {
+            startActivity(Intent.createChooser(send, "Enviar video"))
+        }
+    }
+
     private fun ok(extra: JSONObject.() -> Unit = {}): String = JSONObject().put("ok", true).apply(extra).toString()
     private fun fail(e: Throwable): String = JSONObject().put("ok", false).put("error", e.message ?: "Error").toString()
 
@@ -232,6 +353,27 @@ class MainActivity : ComponentActivity() {
                 if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
+        }
+
+        @JavascriptInterface
+        fun saveVideo(b64: String?, mime: String?): String = try {
+            val bytes = Base64.decode(b64 ?: "", Base64.DEFAULT)
+            if (bytes.isEmpty()) throw IllegalStateException("El video está vacío")
+            val dir = File(cacheDir, "videos").apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() }   // borrar videos anteriores
+            val ext = if ((mime ?: "").contains("mp4")) "mp4" else "webm"
+            val input = File(dir, "grabado.$ext").apply { writeBytes(bytes) }
+            val out = File(dir, "StickerVideo_${System.currentTimeMillis()}.mp4")
+            lastVideo = null
+            runOnUiThread { exportVideo(input, out) }
+            ok { put("pending", true) }
+        } catch (e: Exception) {
+            fail(e)
+        }
+
+        @JavascriptInterface
+        fun shareVideo() {
+            runOnUiThread { shareLastVideo() }
         }
 
         @JavascriptInterface
